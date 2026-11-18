@@ -214,6 +214,7 @@ ls "$CONSUMER/target/$TARGET/release/libreg_std_consumer.rlib" >/dev/null
 echo "consumer crate built on stable rustc against the new std: OK"
 
 # --- 6. deterministic tarball --------------------------------------------------
-tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+# Modes are normalised too: the umask differs between machines.
+tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --mode=a+rX,u+w,go-w \
 	-C "$WORK/stage" -cf - "rust-std-$VER-$TARGET" | xz -T1 -9 > "$OUT/$NAME.tar.xz"
 (cd "$OUT" && sha256sum "$NAME.tar.xz" > "$NAME.tar.xz.sha256" && cat "$NAME.tar.xz.sha256")

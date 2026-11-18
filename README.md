@@ -51,7 +51,9 @@ version and commit, flags).
      the target expects (`scripts/check-fp-abi.sh`);
    - a crate using `std`, `libc` and `cfg-if` builds on **stable** `rustc`
      (no `RUSTC_BOOTSTRAP`) against the new std only.
-6. Writes a deterministic `tar.xz` (sorted names, mtime 0, uid/gid 0).
+6. Writes a deterministic `tar.xz` (sorted names, mtime 0, uid/gid 0,
+   normalised modes): the same version and target give the same bytes on any
+   machine.
 
 The std is tied to the exact compiler: a std built for 1.98.1 only loads in
 the official 1.98.1 `rustc`. Every Rust version needs its own release.
