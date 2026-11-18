@@ -1,0 +1,3 @@
+# Official Rust 1.98.1 tarballs, from https://static.rust-lang.org/dist/<file>.sha256
+5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b  rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz
+5c846ebcebcc7e2e0777a4cdaa12051691593f16a7e94edbae5e6241cc62d98c  rust-src-1.98.1.tar.xz

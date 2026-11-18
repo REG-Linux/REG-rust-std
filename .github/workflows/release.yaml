@@ -1,0 +1,84 @@
+name: Build and release
+
+# A tag is a Rust version (1.98.1): build every target for it and publish a
+# release. workflow_dispatch builds without publishing (dry run).
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Rust version
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  targets:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      targets: ${{ steps.t.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          if [ "${{ github.event_name }}" = push ]; then
+            v="${GITHUB_REF_NAME}"
+          elif [ -n "${{ inputs.version }}" ]; then
+            v="${{ inputs.version }}"
+          else
+            # pull request: the newest pinned version
+            v=$(ls versions | sed 's/\.sha256$//' | sort -V | tail -n1)
+          fi
+          [ -f "versions/${v}.sha256" ] || { echo "no versions/${v}.sha256"; exit 1; }
+          echo "version=${v}" >> "$GITHUB_OUTPUT"
+      - id: t
+        run: |
+          echo "targets=$(ls targets | sed 's/\.conf$//' | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: targets
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.targets.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: ./build.sh "${{ needs.targets.outputs.version }}" "${{ matrix.target }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push'
+    needs: [targets, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ needs.targets.outputs.version }}
+        run: |
+          ls -l out
+          {
+            echo "Rust ${VER} standard library for targets without an official prebuilt std,"
+            echo "built with the official rustc ${VER}. See the README for how to reproduce it."
+            echo
+            echo '```'
+            cat out/*.sha256
+            echo '```'
+          } > notes.md
+          gh release view "${VER}" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1 \
+            || gh release create "${VER}" -R "${GITHUB_REPOSITORY}" --title "Rust ${VER}" --notes-file notes.md
+          gh release upload "${VER}" out/* -R "${GITHUB_REPOSITORY}" --clobber
