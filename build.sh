@@ -99,6 +99,10 @@ fi
 PROBE="$WORK/probe"
 mkdir -p "$PROBE/src"
 cat > "$PROBE/Cargo.toml" <<EOF
+# The std workspace's profile (appended below) sets per-crate rustflags,
+# e.g. panic=abort for panic_abort; RUSTC_BOOTSTRAP=1 allows the feature.
+cargo-features = ["profile-rustflags"]
+
 [package]
 name = "reg-std-probe"
 version = "0.0.0"
@@ -116,6 +120,9 @@ codegen-units = 1
 debug = "line-tables-only"
 EOF
 echo 'pub fn probe() -> std::string::String { std::format!("{}", 1) }' > "$PROBE/src/lib.rs"
+# The std workspace's own per-package overrides (compiler_builtins split per
+# intrinsic, no debuginfo for the backtrace crates), from this version.
+python3 -I "$HERE/scripts/std-profile.py" "$LIBSRC/library/Cargo.toml" >> "$PROBE/Cargo.toml"
 
 export CARGO_HOME="$WORK/cargo-home"
 export CARGO_TARGET_DIR="$WORK/target"
@@ -130,6 +137,7 @@ STD_RUSTFLAGS="$TARGET_RUSTFLAGS -Cembed-bitcode=yes \
 	--remap-path-prefix=$CARGO_HOME=/rust/deps"
 
 (cd "$PROBE" && RUSTC_BOOTSTRAP=1 RUSTFLAGS="$STD_RUSTFLAGS" \
+	RUSTC_WRAPPER="$HERE/scripts/rustc-wrapper.sh" \
 	cargo build --release --target "$TARGET" \
 		-Zbuild-std=std,panic_abort,panic_unwind \
 		--message-format=json-render-diagnostics) > "$WORK/build.json"
@@ -212,6 +220,29 @@ if ! (cd "$CONSUMER" && env -u RUSTC_BOOTSTRAP RUSTFLAGS="$TARGET_RUSTFLAGS" \
 fi
 ls "$CONSUMER/target/$TARGET/release/libreg_std_consumer.rlib" >/dev/null
 echo "consumer crate built on stable rustc against the new std: OK"
+
+# The same crate as a staticlib with panic = "abort": rustc then checks the
+# panic runtime (panic_abort itself must be built with panic=abort), without
+# needing the target's C linker.
+printf '\n[lib]\ncrate-type = ["staticlib"]\n\n[profile.release]\npanic = "abort"\n' \
+	>> "$CONSUMER/Cargo.toml"
+if ! (cd "$CONSUMER" && env -u RUSTC_BOOTSTRAP RUSTFLAGS="$TARGET_RUSTFLAGS" \
+	CARGO_TARGET_DIR="$CONSUMER/target-abort" \
+	cargo build --release --target "$TARGET") > "$WORK/consumer-abort.log" 2>&1; then
+	cat "$WORK/consumer-abort.log" >&2
+	echo "panic=abort staticlib failed to build against the new std" >&2
+	exit 1
+fi
+echo "panic=abort staticlib built against the new std: OK"
+
+# compiler_builtins must be split into one object per intrinsic, as in the
+# official std (hundreds of objects), or it clashes with libgcc at link time.
+n=$(ar t "$LIBDIR"/libcompiler_builtins-*.rlib | grep -c '\.o$')
+if [ "$n" -lt 50 ]; then
+	echo "compiler_builtins has only $n objects: the std workspace profile was not applied" >&2
+	exit 1
+fi
+echo "compiler_builtins: $n objects: OK"
 
 # --- 6. deterministic tarball --------------------------------------------------
 # Modes are normalised too: the umask differs between machines.

@@ -43,6 +43,11 @@ version and commit, flags).
    target's flags from `targets/<target>.conf`, opt-level 3, one codegen
    unit, embedded bitcode (so crates built against it may use LTO), and
    build paths remapped (`/rustc/<commit>`, as in the official std).
+   Like Rust's own build it also applies the std workspace's per-crate
+   profile, read from that version's `library/Cargo.toml` (`panic_abort`
+   built with `panic=abort`, `compiler_builtins` split into one object per
+   intrinsic so it never clashes with libgcc), and builds
+   `compiler_builtins` with `panic=abort` (`scripts/rustc-wrapper.sh`).
 4. Packages the rlibs as a `rust-std-<target>` component.
 5. Checks, and fails on any problem:
    - every crate's licence is on the permissive allowlist in
@@ -50,7 +55,9 @@ version and commit, flags).
    - the FP ABI of every object of `core` and `std` (`readelf -A`) is the one
      the target expects (`scripts/check-fp-abi.sh`);
    - a crate using `std`, `libc` and `cfg-if` builds on **stable** `rustc`
-     (no `RUSTC_BOOTSTRAP`) against the new std only.
+     (no `RUSTC_BOOTSTRAP`) against the new std only, and again as a
+     `panic = "abort"` staticlib;
+   - `compiler_builtins` is split into many objects, as in the official std.
 6. Writes a deterministic `tar.xz` (sorted names, mtime 0, uid/gid 0,
    normalised modes): the same version and target give the same bytes on any
    machine.
